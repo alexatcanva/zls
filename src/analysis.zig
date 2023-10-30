@@ -1083,7 +1083,7 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, node_handle: NodeWithHandle) e
             if (resolvePrimitiveType(name)) |primitive| {
                 const is_type = analyser.ip.indexToKey(primitive).typeOf() == .type_type;
                 return TypeWithHandle{
-                    .type = .{ .data = .{ .ip_index = .{ .index = primitive } }, .is_type_val = is_type },
+                    .type = .{ .data = .{ .ip_index = .{ .index = primitive, .node = node } }, .is_type_val = is_type },
                     .handle = handle,
                 };
             }
@@ -1446,9 +1446,42 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, node_handle: NodeWithHandle) e
             if (std.mem.eql(u8, call_name, "@field")) {
                 if (params.len < 2) return null;
                 const field_param = params[1];
-                if (node_tags[field_param] != .string_literal) return null;
+                const field_name = fld_name_blk: {
+                    switch (node_tags[field_param]) {
+                        .string_literal => {
+                            const field_name = handle.tree.tokenSlice(main_tokens[field_param]);
+                            break :fld_name_blk field_name;
+                        },
+                        .identifier,
+                        .field_access,
+                        => {
+                            var resolved_type = (try analyser.resolveTypeOfNodeInternal(.{
+                                .node = field_param,
+                                .handle = handle,
+                            })) orelse return null;
+                            switch (resolved_type.type.data) {
+                                // const name = "name"
+                                .other => |n| {
+                                    if (resolved_type.handle.tree.nodes.items(.tag)[n] != .string_literal) return null;
+                                    break :fld_name_blk offsets.nodeToSlice(resolved_type.handle.tree, n);
+                                },
+                                // const name: []const u8 = "name";
+                                .pointer => |pointer| {
+                                    if (pointer.elem_ty.type.data != .ip_index) return null;
+                                    var str_node = pointer.elem_ty.type.data.ip_index.node orelse return null;
+                                    str_node += 3; // XXX str_node points to the "u8", + 3 gets "name"
+                                    const elem_ty_tree = pointer.elem_ty.handle.tree;
+                                    if ((str_node > elem_ty_tree.nodes.len - 1) or (elem_ty_tree.nodes.items(.tag)[str_node] != .string_literal)) return null;
+                                    break :fld_name_blk offsets.nodeToSlice(elem_ty_tree, str_node);
+                                },
+                                else => return null,
+                            }
+                        },
+                        else => return null,
+                    }
+                };
 
-                const field_name = handle.tree.tokenSlice(main_tokens[field_param]);
+                // Need at least one char between the quotes, eg "a"
                 if (field_name.len < 2) return null;
 
                 var lhs = (try analyser.resolveTypeOfNodeInternal(.{
@@ -1456,7 +1489,13 @@ fn resolveTypeOfNodeUncached(analyser: *Analyser, node_handle: NodeWithHandle) e
                     .handle = handle,
                 })) orelse return null;
 
-                return try resolveFieldAccess(analyser, lhs, field_name[1 .. field_name.len - 1]);
+                return try resolveFieldAccess(analyser, lhs, field_name[1 .. field_name.len - 1])
+                // Try `@"field_name"`
+                orelse try resolveFieldAccess(
+                    analyser,
+                    lhs,
+                    try std.fmt.allocPrint(analyser.arena.allocator(), "@{s}", .{field_name}),
+                );
             }
         },
         .fn_proto,
