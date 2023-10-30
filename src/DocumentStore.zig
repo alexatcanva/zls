@@ -1327,12 +1327,16 @@ pub fn uriFromImportStr(self: *DocumentStore, allocator: std.mem.Allocator, hand
         }
         return null;
     } else if (!std.mem.endsWith(u8, import_str, ".zig")) {
-        if (handle.associated_build_file) |build_file_uri| blk: {
-            const build_file = self.getBuildFile(build_file_uri).?;
-            const config = build_file.config orelse break :blk;
-            for (config.value.packages) |pkg| {
-                if (std.mem.eql(u8, import_str, pkg.name)) {
-                    return try URI.fromPath(allocator, pkg.path);
+        self.lock.lockShared();
+        defer self.lock.unlockShared();
+        for (self.handles.values()) |h| {
+            if (h.associated_build_file) |build_file_uri| blk: {
+                const build_file = self.getBuildFile(build_file_uri).?;
+                const config = build_file.config orelse break :blk;
+                for (config.value.packages) |pkg| {
+                    if (std.mem.eql(u8, import_str, pkg.name)) {
+                        return try URI.fromPath(allocator, pkg.path);
+                    }
                 }
             }
         }
