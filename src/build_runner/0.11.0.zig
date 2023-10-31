@@ -331,6 +331,17 @@ pub fn main() !void {
         else => return err,
     };
 
+    // <--------    ZLS     -------->
+    var deps_build_roots: std.ArrayListUnmanaged(BuildConfig.DepsBuildRoots) = .{};
+
+    inline for (@typeInfo(dependencies.build_root).Struct.decls) |decl| {
+        try deps_build_roots.append(arena, .{
+            .name = decl.name,
+            // XXX Check if it exists?
+            .path = try std.fs.path.resolve(arena, &[_][]const u8{ @field(dependencies.build_root, decl.name), "./build.zig" }),
+        });
+    }
+
     var packages = Packages{ .allocator = arena };
     // defer packages.deinit();
 
@@ -351,6 +362,7 @@ pub fn main() !void {
 
     try std.json.stringify(
         BuildConfig{
+            .deps_build_roots = try deps_build_roots.toOwnedSlice(arena),
             .packages = package_list,
             .include_dirs = include_dirs.keys(),
         },
