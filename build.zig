@@ -4,8 +4,8 @@ const builtin = @import("builtin");
 const zls_version = std.SemanticVersion{ .major = 0, .minor = 12, .patch = 0 };
 
 /// document the latest breaking change that caused a change to the string below:
-/// mem: fix UB in `readInt`/`writeInt` and delete variants
-const min_zig_string = "0.12.0-dev.1379+725f765c3";
+/// x86_64: pass more tests
+const min_zig_string = "0.12.0-dev.1402+a7d8cd591";
 
 pub fn build(b: *std.build.Builder) !void {
     comptime {
@@ -28,6 +28,7 @@ pub fn build(b: *std.build.Builder) !void {
     const data_version = b.option([]const u8, "data_version", "The Zig version your compiler is.") orelse "master";
     const data_version_path = b.option([]const u8, "version_data_path", "Manually specify zig language reference file");
     const override_version_data_file_path = b.option([]const u8, "version_data_file_path", "Relative path to version data file (if none, will be named with timestamp)");
+    const use_llvm = b.option(bool, "use_llvm", "Use Zig's llvm code backend");
 
     const version_string = v: {
         const version_string = b.fmt("{d}.{d}.{d}", .{ zls_version.major, zls_version.minor, zls_version.patch });
@@ -105,6 +106,8 @@ pub fn build(b: *std.build.Builder) !void {
         .optimize = optimize,
         .single_threaded = single_threaded,
     });
+    exe.use_llvm = use_llvm;
+    exe.use_lld = use_llvm;
     exe.pie = pie;
     b.installArtifact(exe);
 
@@ -198,6 +201,8 @@ pub fn build(b: *std.build.Builder) !void {
         .filter = test_filter,
         .single_threaded = single_threaded,
     });
+    tests.use_llvm = use_llvm;
+    tests.use_lld = use_llvm;
 
     tests.addModule("zls", zls_module);
     tests.addModule("build_options", build_options_module);
@@ -211,6 +216,8 @@ pub fn build(b: *std.build.Builder) !void {
         .filter = test_filter,
         .single_threaded = single_threaded,
     });
+    src_tests.use_llvm = use_llvm;
+    src_tests.use_lld = use_llvm;
     src_tests.addModule("build_options", build_options_module);
     src_tests.addModule("test_options", test_options_module);
     test_step.dependOn(&b.addRunArtifact(src_tests).step);
